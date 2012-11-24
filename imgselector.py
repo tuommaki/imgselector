@@ -9,6 +9,7 @@
 
 import pygtk
 pygtk.require('2.0')
+import glib
 import gtk
 import os
 import sys
@@ -35,80 +36,102 @@ class ImageSelector:
     def destroy(self, widget, data=None):
         gtk.main_quit()
 
-    def next_img(self):
-        next_idx = self.images.index(self.cur_image) + 1
+    def next_image(self):
+        # Draw pre-fetched image
+        self.draw_image(self.pixbuf)
+        # Set the current image 'pointer'
+        self.cur_image_file = self.next_image_file
+        # And pre-fetch a next one
+        self.pre_fetch_next_image()
+
+    def pre_fetch_next_image(self):
+        # Initialize next image path
+        next_idx = self.images.index(self.cur_image_file) + 1
         if next_idx == len(self.images):
             try:
-                self.cur_image = self.img_iterator.next()
+                self.next_image_file = self.image_iterator.next()
             except StopIteration:
                 return
-            self.images.append(self.cur_image)
+            self.images.append(self.next_image_file)
         else:
-            self.cur_image = self.images[next_idx]
-        self.redraw_img()
+            self.next_image_file = self.images[next_idx]
 
-    def prev_img(self):
-        prev_idx = self.images.index(self.cur_image) - 1
+        # And try to load it
+        try:
+            self.pixbuf = self.load_image(self.next_image_file)
+        except glib.GError:
+            # Couldn't load file - throw away the "current" next image and
+            # fetch a next image if such exists
+            self.images.pop()
+            self.next_image_file = self.cur_image_file
+            self.pre_fetch_next_image()
+
+    def prev_image(self):
+        prev_idx = self.images.index(self.cur_image_file) - 1
         if prev_idx >= 0:
-            self.cur_image = self.images[prev_idx]
-            self.redraw_img()
+            self.cur_image_file = self.images[prev_idx]
+            self.draw_image(self.load_image(self.cur_image_file))
+            # set the next_image_file with pre fetch
+            self.pre_fetch_next_image()
 
-    def add_img(self):
-        img_path = self.get_dst_image()
+    def add_image(self):
+        image_path = self.get_dst_image()
 
         # If file is already copied, there's no point to do it again
-        if not os.path.isfile(img_path):
+        if not os.path.isfile(image_path):
             # Check that destination directory exists
-            img_dir = os.path.dirname(img_path)
-            if not os.path.exists(img_dir):
-                os.makedirs(img_dir)
+            image_dir = os.path.dirname(image_path)
+            if not os.path.exists(image_dir):
+                os.makedirs(image_dir)
 
             # And copy
-            shutil.copyfile(self.cur_image, img_path)
-        self.next_img()
+            shutil.copyfile(self.cur_image_file, image_path)
+        self.next_image()
 
-    def del_img(self):
-        img_path = self.get_dst_image()
+    def del_image(self):
+        image_path = self.get_dst_image()
 
         # Only remove if dst file exists - Doh!
-        if os.path.exists(img_path):
-            os.remove(img_path)
-        self.next_img()
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        self.next_image()
 
-    def redraw_img(self):
+    def load_image(self, image_path):
         allocation = self.window.get_allocation()
-        pixbuf = gtk.gdk.pixbuf_new_from_file(self.cur_image)
+        pixbuf = gtk.gdk.pixbuf_new_from_file(image_path)
 
         max_width = float(allocation.width)
         max_height = float(allocation.height)
-        img_width = float(pixbuf.get_width())
-        img_height = float(pixbuf.get_height())
+        image_width = float(pixbuf.get_width())
+        image_height = float(pixbuf.get_height())
 
         if max_width < max_height:
-            height = int((img_height / img_width) * max_width)
+            height = int((image_height / image_width) * max_width)
             width = int(max_width)
         else:
             height = int(max_height)
-            width = int((img_width / img_height) * max_height)
-        pixbuf = pixbuf.scale_simple(width, height, gtk.gdk.INTERP_BILINEAR)
+            width = int((image_width / image_height) * max_height)
+        return pixbuf.scale_simple(width, height, gtk.gdk.INTERP_BILINEAR)
+
+    def draw_image(self, pixbuf):
         self.image.set_from_pixbuf(pixbuf)
 
     def get_dst_image(self):
         # Remove root path
-        img_path = self.cur_image[len(self.src_path):]
+        image_path = self.cur_image_file[len(self.src_path):]
         # Remove possible leading '/'
-        if img_path[0] == '/':
-            img_path = img_path[1:]
+        if image_path[0] == '/':
+            image_path = image_path[1:]
         # Construct dest path
-        img_path = os.path.join(self.dst_path, img_path)
-        return img_path
+        image_path = os.path.join(self.dst_path, image_path)
+        return image_path
 
     def quit(self):
         self.destroy(self.window)
 
     def __init__(self):
         if len(sys.argv) < 3:
-            print "usage: imgselector <src path> <dst path>"
+            print "usage: imageselector <src path> <dst path>"
             sys.exit(1)
 
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
@@ -124,21 +147,24 @@ class ImageSelector:
 
         self.src_path = sys.argv[1]
         self.dst_path = sys.argv[2]
-        self.img_iterator = iterdirwalk(self.src_path)
+        self.image_iterator = iterdirwalk(self.src_path)
+
+        # Fetch first image
         try:
-            self.cur_image = self.img_iterator.next()
+            self.next_image_file = self.image_iterator.next()
         except StopIteration:
             print "No files in source path"
             sys.exit(2)
 
-        self.images = [self.cur_image]
-        self.redraw_img()
+        self.images = [self.next_image_file]
+        self.pixbuf = self.load_image(self.next_image_file)
+        self.next_image()
 
         self._key_actions = {
-            'h': self.prev_img,
-            'l': self.next_img,
-            ' ': self.add_img,
-            'd': self.del_img,
+            'h': self.prev_image,
+            'l': self.next_image,
+            ' ': self.add_image,
+            'd': self.del_image,
             'q': self.quit,
         }
 
@@ -146,5 +172,5 @@ class ImageSelector:
         gtk.main()
 
 if __name__ == "__main__":
-    imgselector = ImageSelector()
-    imgselector.main()
+    imageselector = ImageSelector()
+    imageselector.main()
