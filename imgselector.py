@@ -76,7 +76,22 @@ class ImageSelector:
         self.next_img()
 
     def redraw_img(self):
-        self.image.set_from_file(self.cur_image)
+        allocation = self.window.get_allocation()
+        pixbuf = gtk.gdk.pixbuf_new_from_file(self.cur_image)
+
+        max_width = float(allocation.width)
+        max_height = float(allocation.height)
+        img_width = float(pixbuf.get_width())
+        img_height = float(pixbuf.get_height())
+
+        if max_width < max_height:
+            height = int((img_height / img_width) * max_width)
+            width = int(max_width)
+        else:
+            height = int(max_height)
+            width = int((img_width / img_height) * max_height)
+        pixbuf = pixbuf.scale_simple(width, height, gtk.gdk.INTERP_BILINEAR)
+        self.image.set_from_pixbuf(pixbuf)
 
     def get_dst_image(self):
         # Remove root path
