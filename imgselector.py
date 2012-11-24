@@ -57,16 +57,15 @@ class ImageSelector:
         img_path = self.get_dst_image()
 
         # If file is already copied, there's no point to do it again
-        if os.path.isfile(img_path):
-            return
+        if not os.path.isfile(img_path):
+            # Check that destination directory exists
+            img_dir = os.path.dirname(img_path)
+            if not os.path.exists(img_dir):
+                os.makedirs(img_dir)
 
-        # Check that destination directory exists
-        img_dir = os.path.dirname(img_path)
-        if not os.path.exists(img_dir):
-            os.makedirs(img_dir)
-
-        # And copy
-        shutil.copyfile(self.cur_image, img_path)
+            # And copy
+            shutil.copyfile(self.cur_image, img_path)
+        self.next_img()
 
     def del_img(self):
         img_path = self.get_dst_image()
@@ -74,6 +73,7 @@ class ImageSelector:
         # Only remove if dst file exists - Doh!
         if os.path.exists(img_path):
             os.remove(img_path)
+        self.next_img()
 
     def redraw_img(self):
         self.image.set_from_file(self.cur_image)
